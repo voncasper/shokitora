@@ -25,6 +25,7 @@ Usage:
 
 Subsystems:
   vault          CPU-bound zero-cloud secrets manager (.env eliminator)
+  hooks          Git hooks manager (pre-commit secret guard & post-commit ledger)
   ctp            Atomic 1-line release pipeline (Commit -> Tag -> Push)
   init           Initialize local SQLite journal database
   task:list      List tasks in active sprint
@@ -37,6 +38,7 @@ Subsystems:
   sprint         Sprint management (add, update, list, board)
 
 Examples:
+  shoki hooks install
   shoki vault status
   shoki vault import-env .env --delete-source
   shoki vault run -- python app.py
@@ -54,6 +56,17 @@ def main():
         sys.exit(0)
 
     cmd = sys.argv[1]
+
+    # Route 'hooks' subcommand
+    if cmd in ["hooks", "hooks:install", "hooks:status"]:
+        sys.argv.pop(1)
+        if cmd == "hooks:install":
+            sys.argv.insert(1, "install")
+        elif cmd == "hooks:status":
+            sys.argv.insert(1, "status")
+        from shokitora.cli.commands_hooks import main as hooks_main
+        hooks_main()
+        return
 
     # Route 'vault' subcommand
     if cmd == "vault":

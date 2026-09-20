@@ -85,19 +85,31 @@ pip install -e .
 
 ---
 
+## 📚 Documentation & Guides
+
+For complete architecture breakdowns, workflows, and advanced usage, explore the dedicated guides:
+- **[Comprehensive User Guide](docs/USER_GUIDE.md)**: Deep dive into the **5 Sovereign Memory Primitives** (Tasks, Ideas, Decisions, Expenses, Learnings), Expiration Policies, Audit Reports, Failure Triage, and Python SDK.
+- **[Git Hooks Setup & Automation Guide](docs/GIT_HOOKS_GUIDE.md)**: Step-by-step guide to installing local `pre-commit` secret leak guardrails and automatic `post-commit` technical journaling.
+
+---
+
 ## 🛠️ Quickstart & Command Reference
 
 Shokitora installs the command-line binaries `shoki`, `shokitora`, `scribe`, and `ctp`.
 
-### 1. Initialize Local Journal Database
+### 1. Initialize Database & Install Git Hooks
 ```bash
+# Initialize local SQLite technical memory database
 shoki init
+
+# Install pre-commit guardrail (zero-leak filter) and post-commit journaling hook
+shoki hooks install
 ```
 
 ### 2. Manage Tasks & Sprints
 ```bash
 # Add a sprint
-shoki sprint add "Sprint 1" --start 2026-09-20 --end 2026-09-26 --goal "Ship Shokitora v0.1.0"
+shoki sprint add "Sprint 1" --start 2026-09-20 --end 2026-09-26 --goal "Ship Shokitora v0.1.1"
 
 # Add a task to the active sprint
 shoki add task "Implement Hardware Vault" --sprint 1 --success "All unit tests pass"
