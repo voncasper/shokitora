@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shokitora"
-version = "0.1.1"
+version = "0.1.2"
 description = "Shokitora (書記虎) - The Sovereign Tiger Scribe & Agentic Release Control Plane"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -56,3 +56,10 @@ scribe-vault = "shokitora.cli.commands_vault:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["shokitora*"]
+
+[tool.setuptools.package-data]
+shokitora = [
+    "hooks/*.sh",
+    "skills/**/*"
+]
+

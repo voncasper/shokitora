@@ -26,6 +26,7 @@ Usage:
 Subsystems:
   vault          CPU-bound zero-cloud secrets manager (.env eliminator)
   hooks          Git hooks manager (pre-commit secret guard & post-commit ledger)
+  skill          Universal agent skills installer (Antigravity, Claude, Cursor, Windsurf)
   ctp            Atomic 1-line release pipeline (Commit -> Tag -> Push)
   init           Initialize local SQLite journal database
   task:list      List tasks in active sprint
@@ -38,6 +39,7 @@ Subsystems:
   sprint         Sprint management (add, update, list, board)
 
 Examples:
+  shoki skill install all
   shoki hooks install
   shoki vault status
   shoki vault import-env .env --delete-source
@@ -56,6 +58,19 @@ def main():
         sys.exit(0)
 
     cmd = sys.argv[1]
+
+    # Route 'skill' subcommand
+    if cmd in ["skill", "skill:install", "skill:status", "skill:list", "skills"]:
+        sys.argv.pop(1)
+        if cmd == "skill:install":
+            sys.argv.insert(1, "install")
+        elif cmd == "skill:status":
+            sys.argv.insert(1, "status")
+        elif cmd == "skill:list":
+            sys.argv.insert(1, "list")
+        from shokitora.cli.commands_skill import main as skill_main
+        skill_main()
+        return
 
     # Route 'hooks' subcommand
     if cmd in ["hooks", "hooks:install", "hooks:status"]:

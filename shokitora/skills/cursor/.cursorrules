@@ -1,0 +1,22 @@
+# Cursor AI Rules — Shokitora Project Governance
+# ===================================================
+
+# 1. Project Memory & Ledger
+- This repository uses Shokitora (SQLite ledger) for engineering tracking.
+- Query active tasks before starting work: `shoki task:list`
+- Query architectural decisions before refactoring: `shoki list --category decision --limit 5`
+- Query past learnings before debugging complex issues: `shoki list --category learning --limit 5`
+
+# 2. Strict Zero Plaintext Secrets Policy
+- NEVER generate, edit, or commit plaintext `.env` files.
+- NEVER hardcode API keys (ghp_, sk-, etc.) into source code.
+- Always use Shokitora Sovereign Vault for secrets:
+  - `shoki vault set <key> <value> --expires-in 90d`
+  - `shoki vault run -- <command>`
+  - `shoki vault triage [service]`
+
+# 3. Post-Task Completion
+- When completing a task:
+  - Mark completed: `shoki update <task_id> --status COMPLETED --hours <hours>`
+  - If a design choice was made: `shoki add decision "<why>" --parent <task_id>`
+  - If an issue was resolved: `shoki add learning "<how>" --parent <task_id>`

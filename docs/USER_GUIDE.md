@@ -1,6 +1,6 @@
 # Shokitora (書記虎) Comprehensive User Guide & Reference Manual
 
-**Version:** 0.1.1  
+**Version:** 0.1.2  
 **Author:** Vincent Capers Jr., Founder & Principal Architect  
 **Corporate Entity:** VonCasper Solutions  
 **License:** Dual MIT & Apache 2.0  
@@ -478,6 +478,31 @@ shoki add decision "Used HKDF over PBKDF2 for derivation speed" --parent <id>
 shoki add learning "PyPI rejected package due to uppercase letters in name" --parent <id>
 ```
 
+### 7.3 1-Line Universal Agent Skill Installation
+Rather than manually instructing each autonomous coding agent on every session prompt, Shokitora provides pre-packaged, drop-in agent skill files and system prompt rule templates:
+
+| Agent Platform | Generated File | Purpose |
+|---|---|---|
+| **Google Antigravity / Gemini CLI** | `.gemini/skills/shokitora/SKILL.md` | Native skill tool with pre-task grounding, secret guardrails, and post-task routines |
+| **Anthropic Claude Code** | `CLAUDE.md` | Workspace memory guidelines auto-loaded at conversation start |
+| **Cursor AI IDE** | `.cursorrules` | System prompt rules enforcing zero-leak vault usage and task logging |
+| **Windsurf Cascade** | `.windsurfrules` | Cascade workflow instructions for sprint tracking and ADR logging |
+
+Install all skills in one command:
+```bash
+# Install drop-in skills for all supported agents
+shoki skill install all
+
+# Or install for a specific agent
+shoki skill install antigravity
+shoki skill install claude
+shoki skill install cursor
+shoki skill install windsurf
+
+# Verify active status
+shoki skill status
+```
+
 ---
 
 ## 8. Summary Command Cheat Sheet
@@ -485,6 +510,11 @@ shoki add learning "PyPI rejected package due to uppercase letters in name" --pa
 | Command | Description |
 |---|---|
 | `shoki init` | Initialize local SQLite journal database (`journal.db`) |
+| `shoki hooks install` | Install Git `pre-commit` (zero-leak) & `post-commit` (auto-log) hooks |
+| `shoki hooks status` | Check status of installed Git hooks |
+| `shoki skill list` | List supported autonomous agent platforms |
+| `shoki skill install all` | Install drop-in skills for Antigravity, Claude Code, Cursor, and Windsurf |
+| `shoki skill status` | Verify presence and file sizes of workspace agent skill configurations |
 | `shoki add task "<desc>" --sprint <id>` | Add a task with success criteria and due date |
 | `shoki task:list` | List open tasks in the active sprint |
 | `shoki update <id> --status <status>` | Transition task status (`IN_PROGRESS`, `COMPLETED`) |
@@ -503,3 +533,4 @@ shoki add learning "PyPI rejected package due to uppercase letters in name" --pa
 | `shoki vault import-env .env --delete-source` | Import and securely shred plaintext `.env` file |
 | `shoki vault run -- <command>` | Run command with secrets injected in-memory |
 | `ctp "<commit_message>"` | Atomic 1-line release: stage, commit, tag, and push |
+

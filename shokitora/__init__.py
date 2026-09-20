@@ -9,7 +9,7 @@ Corporate Entity: VonCasper Solutions
 License: MIT / Apache 2.0 Dual License
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __author__ = "Vincent Capers Jr. (VonCasper Solutions)"
 
 from shokitora.core.vault import (

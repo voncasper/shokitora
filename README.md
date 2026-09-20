@@ -165,6 +165,24 @@ ctp "feat(vault): add hardware-bound CPU secret engine"
 ctp -m "chore: release initial public beta" -t "v0.1.0"
 ```
 
+### 5. Multi-Agent Skills Setup (Universal Agent Interoperability)
+```bash
+# List supported agent platforms
+shoki skill list
+
+# Install drop-in skills and rules for all agents in 1 line
+shoki skill install all
+
+# Or install for a specific agent
+shoki skill install antigravity   # Configures .gemini/skills/shokitora/SKILL.md
+shoki skill install claude        # Configures CLAUDE.md
+shoki skill install cursor        # Configures .cursorrules
+shoki skill install windsurf      # Configures .windsurfrules
+
+# Check status of installed agent skills
+shoki skill status
+```
+
 ---
 
 ## 🐍 Python SDK Usage
