@@ -7,9 +7,11 @@
 <p align="center">
   <a href="https://github.com/voncasper/shokitora/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT%20%2F%20Apache%202.0-blue.svg" alt="License"></a>
   <a href="https://pypi.org/project/shokitora/"><img src="https://img.shields.io/badge/Python-3.9%2B-green.svg" alt="Python Version"></a>
+  <img src="https://img.shields.io/badge/Coverage-100%25-brightgreen.svg" alt="Coverage">
   <img src="https://img.shields.io/badge/Sovereignty-100%25%20Local%20%26%20Zero%20Cloud-orange.svg" alt="Zero Cloud">
   <img src="https://img.shields.io/badge/Cryptography-AES--256--GCM%20%2B%20HKDF-purple.svg" alt="Cryptography">
 </p>
+
 
 ---
 

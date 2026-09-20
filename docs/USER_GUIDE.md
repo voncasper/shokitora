@@ -1,6 +1,6 @@
 # Shokitora (書記虎) Comprehensive User Guide & Reference Manual
 
-**Version:** 0.1.2  
+**Version:** 0.1.3  
 **Author:** Vincent Capers Jr., Founder & Principal Architect  
 **Corporate Entity:** VonCasper Solutions  
 **License:** Dual MIT & Apache 2.0  

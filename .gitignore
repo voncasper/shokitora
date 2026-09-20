@@ -29,3 +29,10 @@ journal.db
 .idea/
 .vscode/
 *.swp
+
+# Test & Coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+

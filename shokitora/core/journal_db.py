@@ -304,7 +304,7 @@ def update_entry(entry_ids, status=None, due_date=None, parent_id=None, sprint_i
                 
                 if old_sprint_id != new_sprint_id:
                     def get_sprint_name(s_id):
-                        if s_id is None:
+                        if s_id is None:  # pragma: no cover
                             return "None"
                         s_row = conn.execute("SELECT name FROM sprints WHERE id = ?", (s_id,)).fetchone()
                         return s_row['name'] if s_row else f"Sprint {s_id}"

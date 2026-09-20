@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shokitora"
-version = "0.1.2"
+version = "0.1.3"
 description = "Shokitora (書記虎) - The Sovereign Tiger Scribe & Agentic Release Control Plane"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -62,4 +62,15 @@ shokitora = [
     "hooks/*.sh",
     "skills/**/*"
 ]
+
+[tool.coverage.run]
+source = ["shokitora"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError"
+]
+
 

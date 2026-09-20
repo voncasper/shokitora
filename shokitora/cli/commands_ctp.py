@@ -20,10 +20,10 @@ def run_git(args, capture_output=False, check=True):
             text=True,
             capture_output=capture_output
         )
+        if not check and res.returncode != 0:
+            return ""
         return res.stdout.strip() if capture_output else ""
     except subprocess.CalledProcessError as e:
-        if not check:
-            return ""
         print(f"Git error: {e}", file=sys.stderr)
         sys.exit(e.returncode)
 
@@ -93,8 +93,8 @@ def main():
     # 2. Git Commit
     print("2. Committing changes...")
     try:
-        run_git(["commit", "-m", commit_msg])
-    except Exception:
+        subprocess.run(["git", "commit", "-m", commit_msg], check=True, text=True, capture_output=True)
+    except subprocess.CalledProcessError:
         print("   Notice: Nothing new to commit, continuing to tag/push.")
 
     # 3. Git Tag
