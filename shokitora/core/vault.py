@@ -34,7 +34,8 @@ import argparse
 import platform
 import subprocess
 import hashlib
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, List, Tuple
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -80,6 +81,162 @@ def get_default_vault_path() -> str:
 
 SALT_HKDF_CPU_HARDWARE = b"scribe-open-source-vault-cpu-v1"
 SALT_PBKDF2_MIGRATION = b"scribe-vault-migration-bundle-v1"
+
+
+def parse_expiry(expires: Optional[str] = None, expires_in: Optional[str] = None) -> Optional[str]:
+    """
+    Parses an absolute date or relative duration into an ISO-8601 UTC timestamp.
+    Supported formats:
+      --expires-in 90d, 30d, 48h, 12m, 1y, or raw integer days (90)
+      --expires YYYY-MM-DD or ISO timestamp, or 'CLEAR' / 'NONE'
+    """
+    now = datetime.now(timezone.utc)
+    if expires_in:
+        s = expires_in.strip().lower()
+        if s.endswith("d"):
+            days = int(s[:-1])
+            target = now + timedelta(days=days)
+        elif s.endswith("h"):
+            hours = int(s[:-1])
+            target = now + timedelta(hours=hours)
+        elif s.endswith("m") or s.endswith("mo"):
+            m_count = int(re.sub(r"[^\d]", "", s))
+            target = now + timedelta(days=m_count * 30)
+        elif s.endswith("y"):
+            years = int(s[:-1])
+            target = now + timedelta(days=years * 365)
+        elif s.isdigit():
+            target = now + timedelta(days=int(s))
+        else:
+            raise ValueError(f"Unsupported --expires-in format: '{expires_in}'. Use e.g. 90d, 30d, 48h, 1y.")
+        return target.isoformat()
+
+    if expires:
+        s = expires.strip()
+        if s.upper() in ["NONE", "CLEAR"]:
+            return "CLEAR"
+        try:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.isoformat()
+        except Exception:
+            pass
+        try:
+            dt = datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc, hour=23, minute=59, second=59)
+            return dt.isoformat()
+        except Exception:
+            raise ValueError(f"Unsupported --expires date format: '{expires}'. Use YYYY-MM-DD or ISO-8601.")
+
+    return None
+
+
+def compute_expiry_metadata(expires_at_iso: Optional[str], warn_days: int = 14) -> Dict[str, Any]:
+    """Computes days remaining, status (ACTIVE, EXPIRING_SOON, EXPIRED, PERPETUAL), and display."""
+    if not expires_at_iso:
+        return {
+            "expires_at": None,
+            "days_remaining": None,
+            "status": "PERPETUAL",
+            "display": "No Expiry",
+            "is_expired": False,
+            "is_expiring_soon": False
+        }
+
+    now = datetime.now(timezone.utc)
+    try:
+        dt = datetime.fromisoformat(expires_at_iso.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return {
+            "expires_at": expires_at_iso,
+            "days_remaining": None,
+            "status": "UNKNOWN",
+            "display": str(expires_at_iso),
+            "is_expired": False,
+            "is_expiring_soon": False
+        }
+
+    delta = dt - now
+    total_seconds = delta.total_seconds()
+    days = int(total_seconds // 86400)
+
+    if total_seconds < 0:
+        past_days = abs(days)
+        return {
+            "expires_at": dt.isoformat(),
+            "days_remaining": days,
+            "status": "EXPIRED",
+            "display": f"EXPIRED ({past_days}d ago)",
+            "is_expired": True,
+            "is_expiring_soon": False
+        }
+    elif days <= warn_days:
+        return {
+            "expires_at": dt.isoformat(),
+            "days_remaining": days,
+            "status": "EXPIRING_SOON",
+            "display": f"WARN: {days}d left ({dt.strftime('%b %d')})",
+            "is_expired": False,
+            "is_expiring_soon": True
+        }
+    else:
+        return {
+            "expires_at": dt.isoformat(),
+            "days_remaining": days,
+            "status": "ACTIVE",
+            "display": f"{days}d left ({dt.strftime('%b %d')})",
+            "is_expired": False,
+            "is_expiring_soon": False
+        }
+
+
+REMEDIATION_GUIDE = {
+    "github": {
+        "url": "https://github.com/settings/tokens",
+        "service": "GitHub",
+        "action": "Generate a new token with required scopes ('repo', 'workflow', etc.) and run: scribe vault set github/token <new_token> --expires-in 90d"
+    },
+    "huggingface": {
+        "url": "https://huggingface.co/settings/tokens",
+        "service": "Hugging Face",
+        "action": "Generate a new token at HF settings and run: scribe vault set huggingface/token <new_token>"
+    },
+    "openai": {
+        "url": "https://platform.openai.com/api-keys",
+        "service": "OpenAI",
+        "action": "Generate a new API key at platform.openai.com and run: scribe vault set openai/api_key <new_key>"
+    },
+    "anthropic": {
+        "url": "https://console.anthropic.com/settings/keys",
+        "service": "Anthropic",
+        "action": "Generate a new API key at console.anthropic.com and run: scribe vault set anthropic/api_key <new_key>"
+    },
+    "gemini": {
+        "url": "https://aistudio.google.com/app/apikey",
+        "service": "Google AI Studio / Gemini",
+        "action": "Generate a new API key in Google AI Studio and run: scribe vault set gemini/api_key <new_key>"
+    }
+}
+
+
+def get_remediation_info(key: str) -> Dict[str, str]:
+    """Returns service name, renewal URL, and rotation action for a given secret key."""
+    k_lower = key.lower()
+    for prefix, info in REMEDIATION_GUIDE.items():
+        if prefix in k_lower:
+            return info
+    return {
+        "url": "N/A",
+        "service": "Internal / Custom Service",
+        "action": f"Rotate secret credentials and run: scribe vault set {key} <new_value>"
+    }
+
+
+def get_remediation_url(key: str) -> str:
+    """Returns renewal URL for a given secret key."""
+    return get_remediation_info(key)["url"]
 
 
 def get_host_hardware_fingerprint() -> Dict[str, Any]:
@@ -322,23 +479,34 @@ class ScribeVault:
         os.replace(tmp_path, self.vault_path)
         self._ensure_secure_permissions(self.vault_path)
 
-    def set(self, key: str, value: str, description: Optional[str] = None):
-        """Stores or updates a secret."""
+    def set(self, key: str, value: Optional[str] = None, description: Optional[str] = None, expires_at: Optional[str] = None):
+        """Stores or updates a secret and optional expiration policy."""
         key = key.strip()
         data = self._load_raw_vault()
         secrets = data.setdefault("secrets", {})
         now = datetime.now(timezone.utc).isoformat()
 
-        entry = secrets.get(key, {})
-        entry["value"] = value
-        entry["updated_at"] = now
-        if description is not None:
-            entry["description"] = description
-        elif "created_at" not in entry:
-            entry["description"] = ""
+        entry = secrets.get(key)
+        if entry is None:
+            if value is None:
+                raise ValueError(f"Secret '{key}' does not exist. A value must be provided to create it.")
+            entry = {
+                "value": value,
+                "created_at": now,
+                "updated_at": now,
+                "description": description or ""
+            }
+        else:
+            if value is not None:
+                entry["value"] = value
+            entry["updated_at"] = now
+            if description is not None:
+                entry["description"] = description
 
-        if "created_at" not in entry:
-            entry["created_at"] = now
+        if expires_at == "CLEAR":
+            entry.pop("expires_at", None)
+        elif expires_at is not None:
+            entry["expires_at"] = expires_at
 
         secrets[key] = entry
         self._save_raw_vault(data)
@@ -372,14 +540,133 @@ class ScribeVault:
                 masked = f"{'*' * min(val_len - 4, 8)}{val[-4:]}"
             else:
                 masked = "****"
+            exp_meta = compute_expiry_metadata(v.get("expires_at"))
             results.append({
                 "key": k,
                 "description": v.get("description", ""),
                 "masked_preview": masked,
                 "length": val_len,
                 "created_at": v.get("created_at", ""),
-                "updated_at": v.get("updated_at", "")
+                "updated_at": v.get("updated_at", ""),
+                "expires_at": v.get("expires_at"),
+                "status": exp_meta["status"],
+                "display_expiry": exp_meta["display"],
+                "days_remaining": exp_meta["days_remaining"],
+                "is_expired": exp_meta["is_expired"],
+                "is_expiring_soon": exp_meta["is_expiring_soon"]
             })
+        return sorted(results, key=lambda x: x["key"])
+
+    def audit(self, warn_days: int = 14) -> Dict[str, Any]:
+        """
+        Audits all stored secrets for upcoming expiration or expired credentials.
+        Returns categorization by status with counts and actionable recommendations.
+        """
+        data = self._load_raw_vault()
+        secrets = data.get("secrets", {})
+        
+        expired = []
+        expiring_soon = []
+        active = []
+        perpetual = []
+
+        for k, v in secrets.items():
+            val = str(v.get("value", ""))
+            val_len = len(val)
+            masked = f"{'*' * min(val_len - 4, 8)}{val[-4:]}" if val_len > 4 else "****"
+            exp_meta = compute_expiry_metadata(v.get("expires_at"), warn_days=warn_days)
+            rem_info = get_remediation_info(k)
+            item = {
+                "key": k,
+                "description": v.get("description", ""),
+                "masked_preview": masked,
+                "length": val_len,
+                "expires_at": v.get("expires_at"),
+                "status": exp_meta["status"],
+                "display_expiry": exp_meta["display"],
+                "days_remaining": exp_meta["days_remaining"],
+                "service": rem_info["service"],
+                "remediation_url": rem_info["url"],
+                "remediation_action": rem_info["action"]
+            }
+            if exp_meta["status"] == "EXPIRED":
+                expired.append(item)
+            elif exp_meta["status"] == "EXPIRING_SOON":
+                expiring_soon.append(item)
+            elif exp_meta["status"] == "ACTIVE":
+                active.append(item)
+            else:
+                perpetual.append(item)
+
+        total = len(secrets)
+        health = "HEALTHY"
+        if expired:
+            health = "CRITICAL"
+        elif expiring_soon:
+            health = "WARNING"
+
+        return {
+            "health": health,
+            "warn_days_threshold": warn_days,
+            "counts": {
+                "total": total,
+                "expired": len(expired),
+                "expiring_soon": len(expiring_soon),
+                "active": len(active),
+                "perpetual": len(perpetual)
+            },
+            "expired": expired,
+            "expiring_soon": expiring_soon,
+            "active": active,
+            "perpetual": perpetual
+        }
+
+    def triage(self, query: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Diagnoses secrets for authentication/expiration issues and provides remediation.
+        """
+        data = self._load_raw_vault()
+        secrets = data.get("secrets", {})
+        results = []
+
+        for k, v in secrets.items():
+            if query and query.lower() not in k.lower():
+                continue
+
+            val = str(v.get("value", ""))
+            val_len = len(val)
+            masked = f"{'*' * min(val_len - 4, 8)}{val[-4:]}" if val_len > 4 else "****"
+            exp_meta = compute_expiry_metadata(v.get("expires_at"))
+            rem_info = get_remediation_info(k)
+            
+            # Formulate diagnosis
+            if exp_meta["status"] == "EXPIRED":
+                days = abs(exp_meta["days_remaining"] or 0)
+                diagnosis = f"CRITICAL: Secret expired {days} days ago. Auth failure (e.g. HTTP 401) is expected."
+            elif exp_meta["status"] == "EXPIRING_SOON":
+                days = exp_meta["days_remaining"] or 0
+                diagnosis = f"WARNING: Secret expires in {days} days. Rotate immediately to prevent outage."
+            elif exp_meta["status"] == "ACTIVE":
+                days = exp_meta["days_remaining"] or 0
+                diagnosis = f"OK: Secret is active ({days} days remaining)."
+            else:
+                diagnosis = "INFO: Secret is perpetual (no expiry configured)."
+
+            results.append({
+                "key": k,
+                "description": v.get("description", ""),
+                "masked_preview": masked,
+                "length": val_len,
+                "expires_at": v.get("expires_at"),
+                "status": exp_meta["status"],
+                "display_expiry": exp_meta["display"],
+                "days_remaining": exp_meta["days_remaining"],
+                "diagnosis": diagnosis,
+                "service": rem_info["service"],
+                "remediation_url": rem_info["url"],
+                "remediation_action": rem_info["action"]
+            })
+
         return sorted(results, key=lambda x: x["key"])
 
     def status(self) -> Dict[str, Any]:
@@ -569,9 +856,9 @@ def get_secret(key: str, default: Optional[str] = None, vault_path: Optional[str
     """Top-level convenience function to get a secret."""
     return _get_vault(vault_path).get(key, default)
 
-def set_secret(key: str, value: str, description: Optional[str] = None, vault_path: Optional[str] = None):
-    """Top-level convenience function to store a secret."""
-    _get_vault(vault_path).set(key, value, description)
+def set_secret(key: str, value: Optional[str] = None, description: Optional[str] = None, expires_at: Optional[str] = None, vault_path: Optional[str] = None):
+    """Top-level convenience function to store a secret and optional expiration policy."""
+    _get_vault(vault_path).set(key, value=value, description=description, expires_at=expires_at)
 
 def delete_secret(key: str, vault_path: Optional[str] = None) -> bool:
     """Top-level convenience function to delete a secret."""
@@ -580,6 +867,14 @@ def delete_secret(key: str, vault_path: Optional[str] = None) -> bool:
 def list_secrets(vault_path: Optional[str] = None) -> List[Dict[str, Any]]:
     """Top-level convenience function to list secrets."""
     return _get_vault(vault_path).list()
+
+def audit_secrets(warn_days: int = 14, vault_path: Optional[str] = None) -> Dict[str, Any]:
+    """Top-level convenience function to audit secrets."""
+    return _get_vault(vault_path).audit(warn_days=warn_days)
+
+def triage_secrets(query: Optional[str] = None, vault_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Top-level convenience function to triage secrets."""
+    return _get_vault(vault_path).triage(query=query)
 
 def load_secrets_into_environ(vault_path: Optional[str] = None, override: bool = False):
     """
@@ -602,10 +897,12 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # set
-    p_set = subparsers.add_parser("set", help="Store or update a secret")
+    p_set = subparsers.add_parser("set", help="Store or update a secret and optional expiration policy")
     p_set.add_argument("key", help="Secret identifier (e.g., GEMINI_API_KEY, TELEGRAM_BOT_TOKEN)")
     p_set.add_argument("value", nargs="?", default=None, help="Secret value (omit to enter via secure prompt, or '-' for stdin)")
     p_set.add_argument("--desc", help="Optional description of the secret")
+    p_set.add_argument("--expires", help="Expiration date (YYYY-MM-DD, ISO-8601, or 'CLEAR' to remove)")
+    p_set.add_argument("--expires-in", help="Relative expiration duration (e.g., 90d, 30d, 48h, 12m, 1y)")
 
     # get
     p_get = subparsers.add_parser("get", help="Retrieve a secret value")
@@ -615,6 +912,16 @@ def main():
     # list
     p_list = subparsers.add_parser("list", help="List all stored secret keys with metadata (values masked)")
     p_list.add_argument("--json", action="store_true", help="Output as JSON")
+
+    # audit
+    p_audit = subparsers.add_parser("audit", help="Audit all secrets for expiration and security posture")
+    p_audit.add_argument("--warn-days", type=int, default=14, help="Days threshold for EXPIRING_SOON warning (default: 14)")
+    p_audit.add_argument("--json", action="store_true", help="Output audit report as JSON")
+
+    # triage
+    p_triage = subparsers.add_parser("triage", help="Triage credentials and diagnose authentication/expiration failures")
+    p_triage.add_argument("query", nargs="?", default=None, help="Specific secret key or substring to triage (e.g., 'github')")
+    p_triage.add_argument("--json", action="store_true", help="Output triage report as JSON")
 
     # delete
     p_del = subparsers.add_parser("delete", help="Delete a secret")
@@ -670,17 +977,28 @@ def main():
             print(f"  Enclave Binding    : ACTIVE (Locked to this machine's CPU/Silicon)\n")
 
         elif args.command == "set":
+            expiry_iso = parse_expiry(expires=args.expires, expires_in=args.expires_in)
             val = args.value
             if val == "-":
                 val = sys.stdin.read().rstrip("\r\n")
             elif val is None:
-                val = getpass.getpass(f"Enter secret value for '{args.key}': ")
-                confirm = getpass.getpass("Confirm secret value: ")
-                if val != confirm:
-                    print("Error: Values do not match.", file=sys.stderr)
-                    sys.exit(1)
-            vault.set(args.key, val, description=args.desc)
+                # If secret already exists and user is only updating expiry/desc, don't prompt for value
+                existing_val = vault.get(args.key)
+                if existing_val is not None and (expiry_iso is not None or args.desc is not None):
+                    val = None  # Indicates keep existing value
+                else:
+                    val = getpass.getpass(f"Enter secret value for '{args.key}': ")
+                    confirm = getpass.getpass("Confirm secret value: ")
+                    if val != confirm:
+                        print("Error: Values do not match.", file=sys.stderr)
+                        sys.exit(1)
+            vault.set(args.key, value=val, description=args.desc, expires_at=expiry_iso)
             print(f"✓ Secret '{args.key}' encrypted and saved to CPU vault.")
+            if expiry_iso == "CLEAR":
+                print("  Expiration policy: CLEARED (perpetual)")
+            elif expiry_iso:
+                meta = compute_expiry_metadata(expiry_iso)
+                print(f"  Expires: {meta['display']} ({expiry_iso})")
 
         elif args.command == "get":
             val = vault.get(args.key)
@@ -701,17 +1019,91 @@ def main():
                 if not secrets:
                     print("No secrets currently stored in Scribe vault.")
                     return
-                print(f"\n{'KEY':<30} | {'PREVIEW':<14} | {'LENGTH':<6} | {'DESCRIPTION':<25} | {'UPDATED'}")
-                print("-" * 105)
+                print(f"\n{'KEY':<28} | {'PREVIEW':<14} | {'STATUS':<13} | {'EXPIRES':<22} | {'DESCRIPTION'}")
+                print("-" * 115)
                 for s in secrets:
                     print(
-                        f"{s['key']:<30} | "
+                        f"{s['key']:<28} | "
                         f"{s['masked_preview']:<14} | "
-                        f"{s['length']:<6} | "
-                        f"{s['description'][:23]:<25} | "
-                        f"{s['updated_at'][:19]}"
+                        f"{s['status']:<13} | "
+                        f"{s['display_expiry']:<22} | "
+                        f"{s['description'][:32]}"
                     )
                 print(f"\nTotal Secrets: {len(secrets)}\n")
+
+        elif args.command == "audit":
+            rep = vault.audit(warn_days=args.warn_days)
+            if args.json:
+                print(json.dumps(rep, indent=2))
+            else:
+                print(f"\n================================================================================")
+                print(f" SCRIBE VAULT AUDIT - POSTURE & EXPIRATION REPORT")
+                print(f"================================================================================")
+                print(f"Overall Health   : {rep['health']}")
+                print(f"Total Secrets    : {rep['counts']['total']}")
+                print(f"  - Expired      : {rep['counts']['expired']}")
+                print(f"  - Expiring Soon: {rep['counts']['expiring_soon']} (within {args.warn_days} days)")
+                print(f"  - Active       : {rep['counts']['active']}")
+                print(f"  - Perpetual    : {rep['counts']['perpetual']}")
+                print("-" * 80)
+
+                if rep["expired"]:
+                    print("\n[CRITICAL] EXPIRED SECRETS (IMMEDIATE ACTION REQUIRED):")
+                    for s in rep["expired"]:
+                        print(f"  ! {s['key']} ({s['display_expiry']})")
+                        print(f"    Service     : {s['service']}")
+                        print(f"    Renew URL   : {s['remediation_url']}")
+                        print(f"    Remediation : {s['remediation_action']}")
+
+                if rep["expiring_soon"]:
+                    print(f"\n[WARNING] SECRETS EXPIRING WITHIN {args.warn_days} DAYS:")
+                    for s in rep["expiring_soon"]:
+                        print(f"  * {s['key']} ({s['display_expiry']})")
+                        print(f"    Service     : {s['service']}")
+                        print(f"    Renew URL   : {s['remediation_url']}")
+                        print(f"    Remediation : {s['remediation_action']}")
+
+                print(f"\nAUDITED SECRETS INVENTORY:")
+                print(f"{'KEY':<28} | {'PREVIEW':<14} | {'STATUS':<13} | {'EXPIRES':<22} | {'DESCRIPTION'}")
+                print("-" * 115)
+                all_items = sorted(
+                    rep["expired"] + rep["expiring_soon"] + rep["active"] + rep["perpetual"],
+                    key=lambda x: x["key"]
+                )
+                for s in all_items:
+                    print(
+                        f"{s['key']:<28} | "
+                        f"{s['masked_preview']:<14} | "
+                        f"{s['status']:<13} | "
+                        f"{s['display_expiry']:<22} | "
+                        f"{s['description'][:32]}"
+                    )
+                print(f"\nStatus: {rep['health']}\n")
+
+        elif args.command == "triage":
+            diag = vault.triage(query=args.query)
+            if args.json:
+                print(json.dumps(diag, indent=2))
+            else:
+                header = "SCRIBE VAULT TRIAGE & DIAGNOSTIC ASSISTANT"
+                if args.query:
+                    header += f" (Filter: '{args.query}')"
+                print(f"\n{'=' * 80}")
+                print(f" {header}")
+                print(f"{'=' * 80}")
+                if not diag:
+                    print(f"No secrets found matching query '{args.query}'.\n")
+                    return
+
+                for item in diag:
+                    status_symbol = "✓" if item["status"] in ["ACTIVE", "PERPETUAL"] else ("!" if item["status"] == "EXPIRING_SOON" else "✗")
+                    print(f"\n[{status_symbol}] Secret: {item['key']}")
+                    print(f"    Status      : {item['status']} ({item['display_expiry']})")
+                    print(f"    Diagnosis   : {item['diagnosis']}")
+                    print(f"    Service     : {item['service']}")
+                    print(f"    Renew URL   : {item['remediation_url']}")
+                    print(f"    Action      : {item['remediation_action']}")
+                print(f"\n{'=' * 80}\n")
 
         elif args.command == "delete":
             ok = vault.delete(args.key)

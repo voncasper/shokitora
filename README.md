@@ -118,8 +118,17 @@ shoki sprint board 1
 # Check host CPU silicon binding
 shoki vault status
 
-# Store a secret securely
-shoki vault set GEMINI_API_KEY "AIzaSy..." --desc "Gemini 2.5 Flash API Key"
+# Store a secret securely with optional expiration policy (e.g., 90-day GitHub PAT)
+shoki vault set GITHUB_TOKEN "ghp_..." --desc "GitHub PAT" --expires-in 90d
+
+# Update expiration or metadata on existing secret without re-entering the secret
+shoki vault set GITHUB_TOKEN --expires-in 90d
+
+# Audit all credentials for expiration posture and upcoming renewal deadlines
+shoki vault audit
+
+# Triage authentication failures or check specific token health
+shoki vault triage github
 
 # Retrieve secret value
 shoki vault get GEMINI_API_KEY

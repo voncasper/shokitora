@@ -20,10 +20,14 @@ from shokitora.core.vault import (
     get_host_hardware_fingerprint,
     derive_key_from_seed,
     derive_key_from_passphrase,
+    parse_expiry,
+    compute_expiry_metadata,
     get_secret,
     set_secret,
     delete_secret,
     list_secrets,
+    audit_secrets,
+    triage_secrets,
     load_secrets_into_environ
 )
 
@@ -144,6 +148,69 @@ class TestShokitoraVault(unittest.TestCase):
         target_vault.import_migratable_bundle(bundle_path, passphrase)
 
         self.assertEqual(target_vault.get("GITHUB_TOKEN"), "ghp_MockSecretToken777")
+
+    def test_08_expiration_relative_and_absolute(self):
+        """Verifies parsing relative durations, absolute dates, and metadata computation."""
+        # 90-day relative expiry
+        self.vault.set("GITHUB_TOKEN", "ghp_MockPAT12345", description="GitHub PAT", expires_at=parse_expiry(expires_in="90d"))
+        meta = compute_expiry_metadata(self.vault.list()[0]["expires_at"])
+        self.assertEqual(meta["status"], "ACTIVE")
+        self.assertGreaterEqual(meta["days_remaining"], 88)
+        self.assertFalse(meta["is_expired"])
+        self.assertFalse(meta["is_expiring_soon"])
+
+        # Expiring soon (5 days)
+        self.vault.set("EXPIRING_TOKEN", "ExpiringValue", expires_at=parse_expiry(expires_in="5d"))
+        exp_item = [x for x in self.vault.list() if x["key"] == "EXPIRING_TOKEN"][0]
+        self.assertEqual(exp_item["status"], "EXPIRING_SOON")
+        self.assertTrue(exp_item["is_expiring_soon"])
+
+        # Expired (2 days in past)
+        from datetime import datetime, timezone, timedelta
+        past_iso = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        self.vault.set("STALE_TOKEN", "ExpiredValue", expires_at=past_iso)
+        stale_item = [x for x in self.vault.list() if x["key"] == "STALE_TOKEN"][0]
+        self.assertEqual(stale_item["status"], "EXPIRED")
+        self.assertTrue(stale_item["is_expired"])
+
+        # Clear expiration policy
+        self.vault.set("GITHUB_TOKEN", expires_at="CLEAR")
+        cleared_item = [x for x in self.vault.list() if x["key"] == "GITHUB_TOKEN"][0]
+        self.assertEqual(cleared_item["status"], "PERPETUAL")
+        self.assertIsNone(cleared_item["expires_at"])
+
+    def test_09_audit_posture_and_expiry(self):
+        """Verifies audit categorization and health status."""
+        self.vault.set("ACTIVE_KEY", "KeyVal1", expires_at=parse_expiry(expires_in="60d"))
+        self.vault.set("WARN_KEY", "KeyVal2", expires_at=parse_expiry(expires_in="7d"))
+        self.vault.set("PERPETUAL_KEY", "KeyVal3")
+
+        rep = self.vault.audit(warn_days=14)
+        self.assertEqual(rep["health"], "WARNING")
+        self.assertEqual(rep["counts"]["total"], 3)
+        self.assertEqual(rep["counts"]["active"], 1)
+        self.assertEqual(rep["counts"]["expiring_soon"], 1)
+        self.assertEqual(rep["counts"]["perpetual"], 1)
+        self.assertEqual(rep["counts"]["expired"], 0)
+
+    def test_10_triage_diagnostic_assistant(self):
+        """Verifies triage diagnosis and remediation instructions."""
+        self.vault.set("github/token", "ghp_DummyToken", expires_at=parse_expiry(expires_in="30d"))
+        triage_res = self.vault.triage("github")
+        self.assertEqual(len(triage_res), 1)
+        self.assertEqual(triage_res[0]["service"], "GitHub")
+        self.assertIn("github.com/settings/tokens", triage_res[0]["remediation_url"])
+        self.assertIn("OK: Secret is active", triage_res[0]["diagnosis"])
+
+    def test_11_metadata_only_update(self):
+        """Verifies that updating expires_at or description preserves existing secret value."""
+        self.vault.set("PRESERVED_KEY", "OriginalSecretValue42", description="Original Desc")
+        self.assertEqual(self.vault.get("PRESERVED_KEY"), "OriginalSecretValue42")
+
+        # Update expires_at without providing value
+        self.vault.set("PRESERVED_KEY", expires_at=parse_expiry(expires_in="90d"))
+        self.assertEqual(self.vault.get("PRESERVED_KEY"), "OriginalSecretValue42")
+        self.assertIsNotNone(self.vault.list()[0]["expires_at"])
 
 
 if __name__ == "__main__":
